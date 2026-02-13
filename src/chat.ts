@@ -1,9 +1,10 @@
 // src/chat.ts
 import { FastifyInstance } from "fastify";
-import { q } from "./db.js";
+import { q } from "./db";
 import { z } from "zod";
 import path from "node:path";
 import fs from "node:fs";
+
 
 const SendMessageBody = z.object({
   conversationId: z.string().uuid(),

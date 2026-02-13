@@ -6,8 +6,10 @@ import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import "dotenv/config";
 import cors from "@fastify/cors";
-import { authRoutes } from "./auth.js";
-import { chatRoutes } from "./chat.js";
+import { authRoutes } from "./auth";
+import { chatRoutes } from "./chat";
+
+import { q } from "./db";
 
 const app = Fastify({ logger: true });
 
