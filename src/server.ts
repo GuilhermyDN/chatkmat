@@ -9,7 +9,6 @@ import cors from "@fastify/cors";
 import { authRoutes } from "./auth.ts";
 import { chatRoutes } from "./chat.ts";
 
-import { q } from "./db";
 
 const app = Fastify({ logger: true });
 
