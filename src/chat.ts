@@ -1,6 +1,6 @@
 // src/chat.ts
 import { FastifyInstance } from "fastify";
-import { q } from "./db";
+import { q } from "./db.ts";
 import { z } from "zod";
 import path from "node:path";
 import fs from "node:fs";

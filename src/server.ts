@@ -6,8 +6,8 @@ import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import "dotenv/config";
 import cors from "@fastify/cors";
-import { authRoutes } from "./auth";
-import { chatRoutes } from "./chat";
+import { authRoutes } from "./auth.ts";
+import { chatRoutes } from "./chat.ts";
 
 import { q } from "./db";
 
