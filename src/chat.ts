@@ -156,7 +156,7 @@ export async function chatRoutes(app: FastifyInstance) {
                 },
               }),
             );
-          } catch {}
+          } catch { }
         });
 
       return { ok: true, id: messageId };
@@ -205,7 +205,12 @@ export async function chatRoutes(app: FastifyInstance) {
   // WebSocket realtime
   // Conecta via browser em:
   // ws(s)://HOST/ws?conversationId=...&token=JWT
+  // WebSocket realtime
   app.get("/ws", { websocket: true }, async (connection, req: any) => {
+    const close = (code: number, reason: string) => {
+      try { connection.socket.close(code, reason); } catch { }
+    };
+
     const auth = req.headers.authorization as string | undefined;
     const tokenFromHeader = auth?.startsWith("Bearer ")
       ? auth.slice("Bearer ".length)
@@ -213,39 +218,43 @@ export async function chatRoutes(app: FastifyInstance) {
     const tokenFromQuery = (req.query?.token as string) || null;
 
     const token = tokenFromHeader || tokenFromQuery;
-    if (!token) {
-      connection.socket.close();
-      return;
-    }
+    if (!token) return close(1008, "missing_token");
 
     let payload: any;
     try {
       payload = await app.jwt.verify(token);
     } catch {
-      connection.socket.close();
-      return;
+      return close(1008, "invalid_token");
     }
 
     const qParsed = WsQuery.safeParse(req.query);
-    if (!qParsed.success) {
-      connection.socket.close();
-      return;
-    }
+    if (!qParsed.success) return close(1008, "invalid_query");
 
     const conversationId = qParsed.data.conversationId;
     const uid = payload.uid as string;
 
     if (!(await isParticipant(conversationId, uid))) {
-      connection.socket.close();
-      return;
+      return close(1008, "not_participant");
     }
 
     const client: WsClient = { uid, conversationId, socket: connection.socket };
     wsClients.push(client);
 
+    // keep-alive (evita proxy derrubar por idle)
+    const pingTimer = setInterval(() => {
+      try { connection.socket.ping(); } catch { }
+    }, 25000);
+
     connection.socket.on("close", () => {
+      clearInterval(pingTimer);
       const idx = wsClients.indexOf(client);
       if (idx >= 0) wsClients.splice(idx, 1);
     });
+
+    connection.socket.on("error", () => {
+      // evita vazamento
+      try { connection.socket.close(); } catch { }
+    });
   });
+
 }
