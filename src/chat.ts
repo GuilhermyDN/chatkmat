@@ -5,13 +5,21 @@ import { z } from "zod";
 import path from "node:path";
 import fs from "node:fs";
 
-
 const SendMessageBody = z.object({
   conversationId: z.string().uuid(),
   type: z.enum(["text", "image", "video", "audio"]),
   text: z.string().optional(),
   mediaUrl: z.string().optional(),
   mediaMeta: z.any().optional(),
+});
+
+const ConversationParams = z.object({
+  id: z.string().uuid(),
+});
+
+const WsQuery = z.object({
+  conversationId: z.string().uuid(),
+  token: z.string().optional(),
 });
 
 function ensureUploadsDir(dir: string) {
@@ -27,6 +35,10 @@ type WsClient = {
 const wsClients: WsClient[] = [];
 
 async function isParticipant(conversationId: string, uid: string) {
+  // defensivo: não deixa uuid inválido virar 500
+  const okId = z.string().uuid().safeParse(conversationId);
+  if (!okId.success) return false;
+
   const rows = await q<{ ok: boolean }>(
     `select true as ok
      from conversations
@@ -46,7 +58,12 @@ export async function chatRoutes(app: FastifyInstance) {
     "/conversations/:id/messages",
     { preHandler: app.requireAuth },
     async (req: any, reply) => {
-      const conversationId = req.params.id as string;
+      const p = ConversationParams.safeParse(req.params);
+      if (!p.success) {
+        return reply.code(400).send({ message: "conversationId inválido" });
+      }
+
+      const conversationId = p.data.id;
       const uid = req.user.uid as string;
 
       if (!(await isParticipant(conversationId, uid))) {
@@ -78,7 +95,12 @@ export async function chatRoutes(app: FastifyInstance) {
     { preHandler: app.requireAuth },
     async (req: any, reply) => {
       const parsed = SendMessageBody.safeParse(req.body);
-      if (!parsed.success) return reply.code(400).send({ message: "Dados inválidos" });
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "Dados inválidos",
+          issues: parsed.error.flatten(),
+        });
+      }
 
       const { conversationId, type, text, mediaUrl, mediaMeta } = parsed.data;
       const uid = req.user.uid as string;
@@ -88,16 +110,29 @@ export async function chatRoutes(app: FastifyInstance) {
       }
 
       if (type === "text") {
-        if (!text || !text.trim()) return reply.code(400).send({ message: "Texto obrigatório" });
+        if (!text || !text.trim()) {
+          return reply.code(400).send({ message: "Texto obrigatório" });
+        }
       } else {
-        if (!mediaUrl) return reply.code(400).send({ message: "mediaUrl obrigatório para mídia" });
+        if (!mediaUrl) {
+          return reply
+            .code(400)
+            .send({ message: "mediaUrl obrigatório para mídia" });
+        }
       }
 
       const rows = await q<{ id: string }>(
         `insert into messages (conversation_id, sender_id, type, text, media_url, media_meta)
          values ($1,$2,$3,$4,$5,$6)
          returning id`,
-        [conversationId, uid, type, text ?? null, mediaUrl ?? null, mediaMeta ?? null],
+        [
+          conversationId,
+          uid,
+          type,
+          text?.trim() ?? null,
+          mediaUrl ?? null,
+          mediaMeta ?? null,
+        ],
       );
 
       const messageId = rows[0]!.id;
@@ -115,7 +150,7 @@ export async function chatRoutes(app: FastifyInstance) {
                   conversationId,
                   senderId: uid,
                   type,
-                  text: text ?? null,
+                  text: text?.trim() ?? null,
                   mediaUrl: mediaUrl ?? null,
                   mediaMeta: mediaMeta ?? null,
                 },
@@ -138,7 +173,10 @@ export async function chatRoutes(app: FastifyInstance) {
       const mp = await req.file();
       if (!mp) return reply.code(400).send({ message: "Arquivo ausente" });
 
-      const safeName = `${Date.now()}_${mp.filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const safeName = `${Date.now()}_${mp.filename.replace(
+        /[^a-zA-Z0-9._-]/g,
+        "_",
+      )}`;
       const fullPath = path.join(uploadsDir, safeName);
 
       await new Promise<void>((resolve, reject) => {
@@ -166,8 +204,7 @@ export async function chatRoutes(app: FastifyInstance) {
 
   // WebSocket realtime
   // Conecta via browser em:
-  // ws://HOST/ws?conversationId=...&token=JWT
-  // (aceita token em query pq browser não envia Authorization header)
+  // ws(s)://HOST/ws?conversationId=...&token=JWT
   app.get("/ws", { websocket: true }, async (connection, req: any) => {
     const auth = req.headers.authorization as string | undefined;
     const tokenFromHeader = auth?.startsWith("Bearer ")
@@ -189,12 +226,13 @@ export async function chatRoutes(app: FastifyInstance) {
       return;
     }
 
-    const conversationId = (req.query?.conversationId as string) || "";
-    if (!conversationId) {
+    const qParsed = WsQuery.safeParse(req.query);
+    if (!qParsed.success) {
       connection.socket.close();
       return;
     }
 
+    const conversationId = qParsed.data.conversationId;
     const uid = payload.uid as string;
 
     if (!(await isParticipant(conversationId, uid))) {
