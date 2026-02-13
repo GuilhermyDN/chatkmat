@@ -2,7 +2,7 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import bcrypt from "bcrypt";
-import { q } from "./db.js";
+import { q } from "./db.ts";
 
 // Aceita username/senha (novo) e também userKey (antigo) pra não quebrar o front
 const LoginBody = z.union([
