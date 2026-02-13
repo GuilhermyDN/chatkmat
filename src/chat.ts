@@ -121,23 +121,18 @@ export async function chatRoutes(app: FastifyInstance) {
         }
       }
 
-      const rows = await q<{ id: string }>(
+      const rows = await q<{
+        id: string;
+        createdAt: string;
+      }>(
         `insert into messages (conversation_id, sender_id, type, text, media_url, media_meta)
-         values ($1,$2,$3,$4,$5,$6)
-         returning id`,
-        [
-          conversationId,
-          uid,
-          type,
-          text?.trim() ?? null,
-          mediaUrl ?? null,
-          mediaMeta ?? null,
-        ],
+   values ($1,$2,$3,$4,$5,$6)
+   returning id, created_at as "createdAt"`,
+        [conversationId, uid, type, text ?? null, mediaUrl ?? null, mediaMeta ?? null],
       );
 
-      const messageId = rows[0]!.id;
+      const saved = rows[0]!;
 
-      // broadcast WS pros participantes conectados nessa conversa
       wsClients
         .filter((c) => c.conversationId === conversationId)
         .forEach((c) => {
@@ -146,20 +141,22 @@ export async function chatRoutes(app: FastifyInstance) {
               JSON.stringify({
                 event: "message:new",
                 data: {
-                  id: messageId,
+                  id: saved.id,
                   conversationId,
                   senderId: uid,
                   type,
-                  text: text?.trim() ?? null,
+                  text: text ?? null,
                   mediaUrl: mediaUrl ?? null,
                   mediaMeta: mediaMeta ?? null,
+                  createdAt: saved.createdAt,
                 },
               }),
             );
           } catch { }
         });
 
-      return { ok: true, id: messageId };
+      return { ok: true, id: saved.id };
+
     },
   );
 
