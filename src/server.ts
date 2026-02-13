@@ -34,7 +34,7 @@ async function main() {
     await authRoutes(app);
     await chatRoutes(app);
 
-    const port = Number(process.env.PORT ?? 3001);
+    const port = Number(process.env.PORT ?? 8080);
 
     await app.listen({ port, host: "0.0.0.0" });
 }
